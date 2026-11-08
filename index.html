@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-Hans">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -17,71 +17,100 @@
     <section class="hero">
       <div class="eyebrow"><span class="pulse"></span> YOUR PERSONAL CONVERSATION COACH</div>
       <h1>Speak naturally.<br><span>Get better every day.</span></h1>
-      <p class="intro">Real conversation, useful corrections, and a tutor that keeps the chat moving.</p>
+      <p class="intro">打字或开口都行。她用美式英语接话，错了就当场改，不把对的句子说成错的。</p>
     </section>
 
     <section class="settings panel">
       <div class="setting">
-        <label for="scenario">SCENARIO</label>
+        <label for="scenario">对话主题</label>
         <select id="scenario">
-          <option>Free conversation</option>
-          <option>Coffee shop</option>
-          <option>Car rental counter</option>
-          <option>Travel and directions</option>
-          <option>Making friends</option>
-          <option>Food and cooking</option>
-          <option>Movies and stories</option>
-          <option>Daily life</option>
+          <option>自由聊天</option>
+          <option>日常生活</option>
+          <option>旅行</option>
+          <option>咖啡店</option>
+          <option>租车</option>
+          <option>交友</option>
+          <option>电影</option>
         </select>
       </div>
       <div class="setting">
-        <label for="level">LEVEL</label>
+        <label for="level">英语水平</label>
         <select id="level">
-          <option>Beginner</option>
-          <option selected>Everyday</option>
-          <option>Intermediate</option>
-          <option>Advanced</option>
+          <option>初级</option>
+          <option selected>日常</option>
+          <option>中级</option>
+          <option>进阶</option>
         </select>
       </div>
       <div class="setting">
-        <label for="style">TUTOR STYLE</label>
+        <label for="style">老师性格</label>
         <select id="style">
-          <option>Witty and encouraging</option>
-          <option>Calm and supportive</option>
-          <option>Direct and challenging</option>
-          <option>Lightly sarcastic, never mean</option>
+          <option>幽默</option>
+          <option>直接</option>
+          <option>鼓励</option>
+          <option>严格</option>
         </select>
+      </div>
+      <div class="setting">
+        <label for="corrections">纠错程度</label>
+        <select id="corrections">
+          <option>轻度</option>
+          <option selected>标准</option>
+          <option>严格</option>
+          <option>关闭</option>
+        </select>
+      </div>
+      <div class="setting">
+        <label for="speed">语音速度</label>
+        <select id="speed">
+          <option>慢速</option>
+          <option selected>正常</option>
+          <option>快速</option>
+        </select>
+      </div>
+      <div class="setting">
+        <label for="apiBase">后端地址</label>
+        <input id="apiBase" type="url" placeholder="https://your-server.onrender.com" autocomplete="off">
+      </div>
+      <div class="setting">
+        <label for="accessCode">访问口令</label>
+        <input id="accessCode" type="password" placeholder="服务器若设置了才需要填" autocomplete="off">
       </div>
       <div class="toggles">
-        <label class="toggle"><input id="corrections" type="checkbox" checked><span class="switch"></span><span>Correct my English</span></label>
-        <label class="toggle"><input id="readAloud" type="checkbox"><span class="switch"></span><span>Read replies aloud</span></label>
+        <label class="toggle"><input id="readAloud" type="checkbox"><span class="switch"></span><span>朗读文字回复</span></label>
+        <label class="toggle"><input id="voiceMode" type="checkbox"><span class="switch"></span><span>语音回答优先</span></label>
       </div>
+      <p id="pagesNote" class="pages-note" hidden>你现在打开的是 GitHub Pages。它只显示网页。把家长部署好的 Node 网址填进「后端地址」，对话才会连上 AI。密钥不要填在这里。</p>
     </section>
 
     <section class="chat panel">
       <div class="chat-head">
         <div class="coach-avatar">S</div>
-        <div><strong>Your English tutor</strong><small><span class="online"></span> Ready to practice</small></div>
+        <div><strong>Your English tutor</strong><small><span class="online"></span> 文字和语音共用这一段对话</small></div>
         <button id="clearBtn" class="text-button" type="button">New chat ↻</button>
       </div>
       <div id="messages" class="messages" aria-live="polite">
         <div class="message assistant">
-          <div class="bubble">
-            Hey! Welcome to SpeakUp. 😊 Let's have a real conversation. Pick a scenario above, or just tell me about your day. I'll help you sound more natural in American English.
-          </div>
+          <div class="bubble">Hey. I'm SpeakUp. Tell me one real thing about today, or say a sentence you want fixed. I'll answer in English and correct only what is actually wrong.</div>
         </div>
       </div>
+      <p id="practiceTarget" class="practice-target" hidden></p>
       <div class="suggestions">
         <button type="button" class="chip" data-prompt="I'm not sure what to talk about.">I'm not sure what to say</button>
-        <button type="button" class="chip" data-prompt="Can we practice a coffee shop conversation?">Practice ordering coffee</button>
-        <button type="button" class="chip" data-prompt="Please check my sentence: I like hiking in the weekend.">Check my English</button>
+        <button type="button" class="chip" data-prompt="Can we practice ordering at a coffee shop?">Practice ordering coffee</button>
+        <button type="button" class="chip" data-prompt="Please check this: I like hiking in the weekend.">Check my English</button>
       </div>
       <form id="chatForm" class="composer">
-        <button id="micBtn" class="icon-button" type="button" title="Speak" aria-label="Speak">🎙</button>
-        <textarea id="userInput" rows="1" placeholder="Type in English or Chinese..." autocomplete="off"></textarea>
+        <button id="micBtn" class="icon-button" type="button" title="说完再点一次发送" aria-label="录音">🎙</button>
+        <textarea id="userInput" rows="1" placeholder="打英文或中文…" autocomplete="off"></textarea>
         <button id="sendBtn" class="send-button" type="submit">Send <span>➤</span></button>
       </form>
-      <div class="footnote">Tip: Try speaking out loud. Use the microphone if your browser supports speech recognition.</div>
+      <div class="playback">
+        <button id="pauseBtn" class="text-button" type="button">暂停</button>
+        <button id="resumeBtn" class="text-button" type="button">继续</button>
+        <button id="stopBtn" class="text-button" type="button">停止朗读</button>
+      </div>
+      <div class="footnote">麦克风点一次开始，再点一次发送。发音分只在配置了 Azure Speech、并且你点了「再读这句」之后才会出现。</div>
     </section>
     <footer>Built for practice, not perfection. <span>Keep showing up.</span></footer>
   </main>
