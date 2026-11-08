@@ -40,7 +40,7 @@ Set environment variables in that host's dashboard, not in GitHub:
 - `OPENAI_TTS_MODEL` — optional, default `gpt-4o-mini-tts`
 - `OPENAI_TTS_VOICE` — optional, default `nova`
 - `APP_ACCESS_CODE` — required in production. The server refuses AI requests when `NODE_ENV=production` and this is empty.
-- `TRUST_PROXY` — set to `1` on Render or Railway. Leave empty locally.
+- `TRUST_PROXY` — set to `1` on Render or Railway. The server then uses `true-client-ip` or `cf-connecting-ip` when that header is one valid IP. It ignores `X-Forwarded-For`, because clients can forge that list. Leave `TRUST_PROXY` empty locally.
 - `DAILY_REQUEST_CAP` — optional, default 150 billable units per IP per day. One text turn costs 1, text plus read-aloud costs 2, one voice turn costs 3.
 - `ALLOWED_ORIGINS` — include `https://jpacis-5b7256e4.github.io`
 - `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` — optional, only for real pronunciation scores

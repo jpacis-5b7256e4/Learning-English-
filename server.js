@@ -40,15 +40,26 @@ app.use((req, res, next) => {
 const hits = new Map();
 const daily = new Map();
 
+function isIp(value) {
+  if (typeof value !== "string") return false;
+  const ip = value.trim();
+  if (!ip || ip.length > 64 || ip.includes(",")) return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+    return ip.split(".").every((part) => Number(part) <= 255);
+  }
+  return ip.includes(":") && /^[0-9a-fA-F:]+$/.test(ip);
+}
+
+function headerIp(req, name) {
+  const raw = req.headers?.[name];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return isIp(value) ? value.trim() : "";
+}
+
 function clientIp(req) {
   const socketIp = req.socket?.remoteAddress || "unknown";
   if (process.env.TRUST_PROXY !== "1") return socketIp;
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded !== "string") return socketIp;
-  const parts = forwarded.split(",").map((part) => part.trim()).filter(Boolean);
-  const last = parts[parts.length - 1];
-  if (!last || last.length > 64) return socketIp;
-  return last;
+  return headerIp(req, "true-client-ip") || headerIp(req, "cf-connecting-ip") || socketIp;
 }
 
 function clip(value, max) {
