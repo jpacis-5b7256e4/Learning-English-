@@ -1,5 +1,6 @@
 const express = require("express");
 const path = require("path");
+const crypto = require("crypto");
 const OpenAI = require("openai");
 
 const app = express();
@@ -40,20 +41,30 @@ const hits = new Map();
 const daily = new Map();
 
 function clientIp(req) {
+  const socketIp = req.socket?.remoteAddress || "unknown";
+  if (process.env.TRUST_PROXY !== "1") return socketIp;
   const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string" && forwarded) return forwarded.split(",")[0].trim();
-  return req.socket.remoteAddress || "unknown";
+  if (typeof forwarded !== "string") return socketIp;
+  const parts = forwarded.split(",").map((part) => part.trim()).filter(Boolean);
+  const last = parts[parts.length - 1];
+  if (!last || last.length > 64) return socketIp;
+  return last;
 }
 
 function clip(value, max) {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
-function takeQuota(ip, kind) {
+function takeQuota(ip, kind, units = 1) {
   const now = Date.now();
-  const dayKey = `${ip}:${new Date().toISOString().slice(0, 10)}`;
+  const day = new Date().toISOString().slice(0, 10);
+  for (const key of daily.keys()) {
+    if (!key.endsWith(day)) daily.delete(key);
+  }
+  const dayKey = `${ip}:${day}`;
   const usedToday = daily.get(dayKey) || 0;
-  if (usedToday >= DAILY_CAP) {
+  const cost = Math.max(1, Number(units) || 1);
+  if (usedToday + cost > DAILY_CAP) {
     return "今天的练习次数已经到上限。这是费用保护，请明天再练，或让家长调高 DAILY_REQUEST_CAP。";
   }
   const key = `${ip}:${kind}`;
@@ -63,8 +74,7 @@ function takeQuota(ip, kind) {
   }
   recent.push(now);
   hits.set(key, recent);
-  daily.set(dayKey, usedToday + 1);
-  if (daily.size > 5000) daily.clear();
+  daily.set(dayKey, usedToday + cost);
   return "";
 }
 
@@ -79,13 +89,29 @@ function denyKey(res) {
 }
 
 function allowAccess(req, res) {
-  const expected = process.env.APP_ACCESS_CODE;
+  const expected = process.env.APP_ACCESS_CODE || "";
+  if (process.env.NODE_ENV === "production" && !expected) {
+    res.status(503).json({
+      error: "线上环境必须设置 APP_ACCESS_CODE，否则任何人都能消耗 API 费用。请让家长在托管平台填写口令，不要写进 GitHub。"
+    });
+    return false;
+  }
   if (!expected) return true;
-  if ((req.get("x-access-code") || "") !== expected) {
+  const got = req.get("x-access-code") || "";
+  const a = crypto.createHash("sha256").update(got).digest();
+  const b = crypto.createHash("sha256").update(expected).digest();
+  if (!crypto.timingSafeEqual(a, b)) {
     res.status(401).json({ error: "访问口令不对。口令只放在服务器环境变量 APP_ACCESS_CODE 里。" });
     return false;
   }
   return true;
+}
+
+function safeError(error) {
+  return String(error && error.message ? error.message : error)
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, "sk-redacted")
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer redacted")
+    .slice(0, 300);
 }
 
 function openai() {
@@ -213,13 +239,14 @@ async function completeTutor(history, settings) {
 
 async function transcribe(buffer, mime) {
   const preferred = process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
-  const file = await OpenAI.toFile(buffer, "speech.webm", { type: mime || "audio/webm" });
+  const filename = audioFilename(mime);
+  const file = await OpenAI.toFile(buffer, filename, { type: mime || "audio/webm" });
   try {
     const result = await openai().audio.transcriptions.create({ file, model: preferred });
     return clip(result.text, 2000);
   } catch (error) {
-    if (preferred === "whisper-1") throw error;
-    const fallback = await OpenAI.toFile(buffer, "speech.webm", { type: mime || "audio/webm" });
+    if (preferred === "whisper-1" || !missingModel(error)) throw error;
+    const fallback = await OpenAI.toFile(buffer, filename, { type: mime || "audio/webm" });
     const result = await openai().audio.transcriptions.create({ file: fallback, model: "whisper-1" });
     return clip(result.text, 2000);
   }
@@ -244,9 +271,30 @@ async function synthesize(text, speed) {
   try {
     return await speakOnce(preferred, text, speed, preferred.includes("gpt-4o"));
   } catch (error) {
-    console.error("Primary TTS failed:", error.message);
+    if (!missingModel(error)) throw error;
+    console.error("Primary TTS model missing:", safeError(error));
     return speakOnce("tts-1", text, speed, false);
   }
+}
+
+function missingModel(error) {
+  return Boolean(error && (error.status === 404 || error.statusCode === 404));
+}
+
+function normalizeMime(value) {
+  const raw = String(value || "").split(";")[0].trim().toLowerCase();
+  if (raw === "audio/x-wav") return "audio/wav";
+  if (raw === "audio/mp3") return "audio/mpeg";
+  const allowed = new Set(["audio/webm", "audio/mp4", "audio/mpeg", "audio/wav", "audio/ogg"]);
+  return allowed.has(raw) ? raw : "";
+}
+
+function audioFilename(mime) {
+  if (mime === "audio/mp4") return "speech.mp4";
+  if (mime === "audio/mpeg") return "speech.mp3";
+  if (mime === "audio/wav") return "speech.wav";
+  if (mime === "audio/ogg") return "speech.ogg";
+  return "speech.webm";
 }
 
 async function assessPronunciation(buffer, mime, referenceText) {
@@ -263,6 +311,9 @@ async function assessPronunciation(buffer, mime, referenceText) {
       available: false,
       reason: "没有配置 Azure Speech，所以不做发音评分。语法纠错来自你刚说的话，不是伪造的发音分。"
     };
+  }
+  if (!/^[a-z0-9-]{2,40}$/.test(region)) {
+    return { available: false, reason: "Azure 区域配置无效，没有做发音评分。" };
   }
   const header = Buffer.from(JSON.stringify({
     ReferenceText: referenceText.slice(0, 400),
@@ -305,10 +356,8 @@ async function assessPronunciation(buffer, mime, referenceText) {
 }
 
 function readAudio(body) {
-  const mime = clip(body.mime, 80) || "audio/webm";
-  if (!mime.startsWith("audio/")) {
-    return { error: "音频格式不对。" };
-  }
+  const mime = normalizeMime(body.mime);
+  if (!mime) return { error: "音频格式不对。" };
   let buffer;
   try {
     buffer = Buffer.from(String(body.audioBase64 || ""), "base64");
@@ -338,9 +387,10 @@ app.post("/api/chat", async (req, res) => {
     if (!history.length || history[history.length - 1].role !== "user") {
       return res.status(400).json({ error: "请先说一句再发送。" });
     }
-    const limited = takeQuota(clientIp(req), "chat");
-    if (limited) return res.status(429).json({ error: limited });
     const settings = req.body || {};
+    const units = settings.readAloud ? 2 : 1;
+    const limited = takeQuota(clientIp(req), "chat", units);
+    if (limited) return res.status(429).json({ error: limited });
     const result = await completeTutor(history, settings);
     let audioBase64 = null;
     if (settings.readAloud) {
@@ -348,7 +398,7 @@ app.post("/api/chat", async (req, res) => {
     }
     res.json({ ...result, audioBase64 });
   } catch (error) {
-    console.error("Chat error:", error.message);
+    console.error("Chat error:", safeError(error));
     res.status(500).json({ error: "老师这会儿没有接上。等一下再试。密钥和账单不用写在这里。" });
   }
 });
@@ -359,7 +409,7 @@ app.post("/api/voice", async (req, res) => {
     if (!allowAccess(req, res)) return;
     const audio = readAudio(req.body || {});
     if (audio.error) return res.status(400).json({ error: audio.error });
-    const limited = takeQuota(clientIp(req), "voice");
+    const limited = takeQuota(clientIp(req), "voice", 3);
     if (limited) return res.status(429).json({ error: limited });
 
     const transcript = await transcribe(audio.buffer, audio.mime);
@@ -376,13 +426,17 @@ app.post("/api/voice", async (req, res) => {
       : null;
     res.json({ transcript, ...result, audioBase64, pronunciation });
   } catch (error) {
-    console.error("Voice error:", error.message);
+    console.error("Voice error:", safeError(error));
     res.status(500).json({ error: "语音这轮没走通。可以改用打字，或稍后再说。" });
   }
 });
 
 app.use(express.static(path.join(__dirname, "public")));
 
-app.listen(PORT, () => {
-  console.log(`SpeakUp listening on ${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`SpeakUp listening on ${PORT}`);
+  });
+}
+
+module.exports = { app, takeQuota, clientIp, parseTutor, readAudio };
